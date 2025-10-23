@@ -12,7 +12,6 @@
 /.vscode
 /.zed
 /auth.json
-/modules/*/vendor/
 /node_modules
 /public/build
 /public/hot
@@ -23,5 +22,6 @@
 Homestead.json
 Homestead.yaml
 Thumbs.db
-/Modules/*/
+/Modules/*
+!/Modules/.gitkeep
 
