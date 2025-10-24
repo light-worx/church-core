@@ -17,6 +17,7 @@ use Filament\Tables\Table;
 use Filament\Notifications\Notification;
 use Filament\Support\Icons\Heroicon;
 use Filament\Actions\Action;
+use Filament\Tables\Columns\ViewColumn;
 use Illuminate\Support\HtmlString;
 
 class ModuleManager extends Page implements HasTable
@@ -42,7 +43,7 @@ class ModuleManager extends Page implements HasTable
     protected function loadModules(): void
     {
         $githubUser = 'light-worx';
-        $repos = ['church-people', 'church-property', 'church-worship'];
+        $repos = ['connexion-people', 'connexion-property', 'connexion-worship'];
 
         $available = collect();
 
@@ -55,7 +56,7 @@ class ModuleManager extends Page implements HasTable
                 $available->push([
                     'repo'         => $repo,
                     'slug'         => Str::slug($repo),
-                    'name'         => Str::of($repo)->after('church-')->headline(),
+                    'name'         => Str::of($repo)->after('connexion-')->headline(),
                     'version'      => $data['tag_name'] ?? 'unknown',
                     'description'  => $data['name'] ?? ($data['body'] ?? 'No description provided'),
                     'download_url' => $data['zipball_url'] ?? null,
@@ -65,7 +66,7 @@ class ModuleManager extends Page implements HasTable
                 $available->push([
                     'repo'         => $repo,
                     'slug'         => Str::slug($repo),
-                    'name'         => Str::of($repo)->after('church-')->headline(),
+                    'name'         => Str::of($repo)->after('connexion-')->headline(),
                     'version'      => 'unknown',
                     'description'  => 'No release found',
                     'download_url' => null,
@@ -114,34 +115,48 @@ class ModuleManager extends Page implements HasTable
         })->toArray();
     }
 
-
     public function table(Table $table): Table
     {
         return $table
-            ->records(fn () => $this->modules) 
+            ->records(fn () => $this->modules)
             ->columns([
                 Tables\Columns\TextColumn::make('name')
                     ->label('Module')
                     ->description(fn (array $record): string => $record['description'] ?? '')
                     ->searchable(),
-                
+                ViewColumn::make('enabled')
+                    ->label('Enabled')
+                    ->view('filament.tables.columns.module-enabled-toggle')
+                    ->action(function ($record) {
+                        $slug = $record['slug'];
+                        $newState = ! $this->isModuleEnabled($slug);
+                        $this->toggleModule($slug, $newState);
+
+                        \Filament\Notifications\Notification::make()
+                            ->title($newState ? "{$record['name']} enabled" : "{$record['name']} disabled")
+                            ->success()
+                            ->send();
+                    })
+                    ->disabled(fn ($record) => ! $record['installed']),
                 Tables\Columns\TextColumn::make('status')
                     ->badge()
                     ->colors([
                         'gray' => 'not_installed',
-                        'success' => 'installed',
+                        'success' => 'installed',       // installed but disabled
+                        'primary' => 'enabled',         // installed and enabled
                         'warning' => 'update',
                     ])
-                    ->formatStateUsing(fn (string $state): string => match ($state) {
-                        'not_installed' => 'Not Installed',
-                        'installed' => 'Installed',
-                        'update' => 'Update Available',
-                        default => $state,
-                    }),
-
+                    ->formatStateUsing(fn(array $record) => 
+                        match(true) {
+                            $record['status'] === 'not_installed' => 'Not Installed',
+                            $record['status'] === 'update' => 'Update Available',
+                            $record['installed'] && $this->isModuleEnabled($record['slug']) => 'Enabled',
+                            $record['installed'] => 'Installed',
+                            default => $record['status'],
+                        }
+                    ),
                 Tables\Columns\TextColumn::make('version')
                     ->label('Available Version'),
-                
                 Tables\Columns\TextColumn::make('installed_version')
                     ->label('Installed Version')
                     ->placeholder('N/A'),
@@ -164,50 +179,135 @@ class ModuleManager extends Page implements HasTable
                     ->visible(fn (array $record): bool => $record['status'] === 'installed'),
                 Action::make('github')
                     ->label('')
-                    ->icon(function(){
-                        return new HtmlString('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="w-5 h-5 fill-current">
-                            <path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"/>
-                        </svg>');
-                    })
+                    ->icon(fn () => new HtmlString('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="w-5 h-5 fill-current"><path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"/></svg>'))
                     ->url(fn (array $record) => "https://github.com/light-worx/{$record['slug']}/releases/latest")
                     ->openUrlInNewTab(),
             ])
             ->paginated(false);
     }
 
+    public function isModuleEnabled(string $slug): bool
+    {
+        $modules = Module::all();
+
+        // Try to match by slug or alias
+        foreach ($modules as $module) {
+            $alias = strtolower($module->get('alias') ?? $module->getName());
+            if ($alias === $slug || strtolower($module->getName()) === str_replace('connexion-', '', $slug)) {
+                return $module->isEnabled();
+            }
+        }
+
+        return false;
+    }
+
+    public function toggleModule(string $slug, bool $enable): void
+    {
+        $modules = Module::all();
+        $targetModule = null;
+
+        foreach ($modules as $module) {
+            $alias = strtolower($module->get('alias') ?? $module->getName());
+            if ($alias === $slug || strtolower($module->getName()) === str_replace('connexion-', '', $slug)) {
+                $targetModule = $module;
+                break;
+            }
+        }
+
+        if (! $targetModule) {
+            \Filament\Notifications\Notification::make()
+                ->title("Module {$slug} not found")
+                ->danger()
+                ->send();
+            return;
+        }
+
+        if ($enable) {
+            $targetModule->enable();
+            $title = "{$targetModule->getName()} enabled";
+        } else {
+            $targetModule->disable();
+            $title = "{$targetModule->getName()} disabled";
+        }
+
+        \Filament\Notifications\Notification::make()
+            ->title($title)
+            ->success()
+            ->send();
+
+        $this->loadModules(); // refresh after toggling
+    }
+
     public function install($slug, $downloadUrl)
     {
         $tmpPath = storage_path("app/tmp/{$slug}.zip");
-        $modulePath = base_path("modules/{$slug}");
+        $modulesDir = base_path("Modules");
 
         File::ensureDirectoryExists(dirname($tmpPath));
+        File::ensureDirectoryExists($modulesDir);
 
-        file_put_contents($tmpPath, file_get_contents($downloadUrl));
+        // Download ZIP
+        $opts = [
+            'http' => [
+                'method' => 'GET',
+                'header' => ['User-Agent: PHP']
+            ]
+        ];
+        $context = stream_context_create($opts);
+        file_put_contents($tmpPath, file_get_contents($downloadUrl, false, $context));
 
+        // Extract to modules dir
         $zip = new ZipArchive;
         if ($zip->open($tmpPath) === TRUE) {
-            $zip->extractTo(base_path('modules'));
+            $zip->extractTo($modulesDir);
             $zip->close();
         }
-
         unlink($tmpPath);
 
-        Artisan::call('module:discover');
+        // Find the most recent extracted folder (GitHub usually adds a hash)
+        $extractedFolders = File::directories($modulesDir);
+        $latestFolder = collect($extractedFolders)
+            ->sortByDesc(fn($path) => File::lastModified($path))
+            ->first();
 
-        // Run migrations (optional)
-        if (File::exists("{$modulePath}/Database/Migrations")) {
+        // Determine intended folder name from module.json
+        $manifestPath = "{$latestFolder}/module.json";
+        $targetName = $slug; // default
+        if (File::exists($manifestPath)) {
+            $manifest = json_decode(File::get($manifestPath), true);
+            $targetName = $manifest['name'] ?? ucfirst($slug);
+        }
+
+        $targetPath = "{$modulesDir}/{$targetName}";
+
+        // Remove any old copy
+        if (File::exists($targetPath)) {
+            File::deleteDirectory($targetPath);
+        }
+
+        // Move to correct name
+        if ($latestFolder && basename($latestFolder) !== $targetName) {
+            File::moveDirectory($latestFolder, $targetPath);
+        }
+
+        // Refresh autoload
+        shell_exec('composer dump-autoload');
+        Artisan::call('optimize:clear');
+
+        // Run migrations if present
+        if (File::exists("{$targetPath}/database/migrations")) {
             Artisan::call('migrate', [
-                '--path' => "modules/{$slug}/Database/Migrations",
+                '--path' => "Modules/{$targetName}/database/migrations",
                 '--force' => true,
             ]);
         }
 
+        // Success notification
         Notification::make()
-            ->title(File::exists($modulePath) ? "{$slug} updated successfully!" : "{$slug} installed successfully!")
+            ->title("{$targetName} module installed successfully!")
             ->success()
             ->send();
 
         $this->loadModules();
     }
-
 }
