@@ -34,6 +34,11 @@ class ModuleManager extends Page implements HasTable
         $this->loadModules();
     }
 
+    public static function shouldRegisterNavigation(): bool
+    {
+        return false; 
+    }
+
     protected function loadModules(): void
     {
         $githubUser = 'light-worx';

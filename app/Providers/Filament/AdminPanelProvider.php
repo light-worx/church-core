@@ -3,10 +3,12 @@
 namespace App\Providers\Filament;
 
 use Coolsam\Modules\ModulesPlugin;
+use Filament\Actions\Action;
 use Filament\Http\Middleware\Authenticate;
 use Filament\Http\Middleware\AuthenticateSession;
 use Filament\Http\Middleware\DisableBladeIconComponents;
 use Filament\Http\Middleware\DispatchServingFilamentEvent;
+use Filament\Navigation\MenuItem;
 use Filament\Pages\Dashboard;
 use Filament\Panel;
 use Filament\PanelProvider;
@@ -54,6 +56,12 @@ class AdminPanelProvider extends PanelProvider
                 DispatchServingFilamentEvent::class,
             ])
             ->plugin(ModulesPlugin::make())
+            ->userMenuItems([
+                Action::make('module_manager')
+                    ->label('Modules')
+                    ->url('/admin/module-manager')
+                    ->icon('heroicon-o-puzzle-piece')
+            ])
             ->authMiddleware([
                 Authenticate::class,
             ]);
