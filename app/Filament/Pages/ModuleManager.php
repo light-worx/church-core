@@ -42,7 +42,7 @@ class ModuleManager extends Page implements HasTable
     protected function loadModules(): void
     {
         $githubUser = 'light-worx';
-        $repos = ['church-people', 'church-worship'];
+        $repos = ['church-people', 'church-property', 'church-worship'];
 
         $available = collect();
 
