@@ -15,6 +15,7 @@ use Filament\Tables\Concerns\InteractsWithTable;
 use Filament\Tables\Table;
 use Filament\Notifications\Notification;
 use Filament\Support\Icons\Heroicon;
+use Filament\Actions\Action;
 
 class ModuleManager extends Page implements HasTable
 {
@@ -33,8 +34,8 @@ class ModuleManager extends Page implements HasTable
 
     protected function loadModules(): void
     {
-        $githubUser = 'bishopm';
-        $repos = ['church'];
+        $githubUser = 'light-worx';
+        $repos = ['church-people','church-worship'];
 
         $available = collect();
 
@@ -87,7 +88,8 @@ class ModuleManager extends Page implements HasTable
                     ->description(fn (array $record): string => $record['description'] ?? '')
                     ->searchable(),
                 
-                Tables\Columns\BadgeColumn::make('status')
+                Tables\Columns\TextColumn::make('status')
+                    ->badge()
                     ->colors([
                         'gray' => 'not_installed',
                         'success' => 'installed',
@@ -107,20 +109,28 @@ class ModuleManager extends Page implements HasTable
                     ->label('Installed Version')
                     ->placeholder('N/A'),
             ])
-            // ... rest of your configuration ...
-            ->actions([
-                // ... actions ...
+            ->recordActions([
+                Action::make('install_module')
+                    ->label('Install')
+                    ->color('primary')
+                    ->action(fn (array $record) => $this->install($record['slug'], $record['download_url']))
+                    ->visible(fn (array $record): bool => $record['status'] === 'not_installed'),
+                Action::make('update')
+                    ->label('Update')
+                    ->color('warning')
+                    ->action(fn (array $record) => $this->install($record['slug'], $record['download_url']))
+                    ->visible(fn (array $record): bool => $record['status'] === 'update'),
+                Action::make('installed')
+                    ->label('Installed')
+                    ->color('gray')
+                    ->disabled()
+                    ->visible(fn (array $record): bool => $record['status'] === 'installed'),
             ])
             ->paginated(false);
     }
 
-    /**
-     * This method is also identical for v3 and v4
-     */
     public function install($slug, $downloadUrl)
     {
-        // ... (Your existing install logic is perfectly fine) ...
-        // (I'm omitting it here for brevity, but keep yours as-is)
         $tmpPath = storage_path("app/tmp/{$slug}.zip");
         $modulePath = base_path("modules/{$slug}");
 
@@ -146,7 +156,6 @@ class ModuleManager extends Page implements HasTable
             ]);
         }
         
-        // This notification syntax works in v3 and v4
         Notification::make()
             ->title("{$slug} installed successfully!")
             ->success()
