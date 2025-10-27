@@ -2,6 +2,7 @@
 
 namespace App\Filament\Pages;
 
+use App\Jobs\UpdateCoreJob;
 use BackedEnum;
 use Filament\Pages\Page;
 use Illuminate\Support\Facades\Http;
@@ -25,7 +26,7 @@ class ModuleManager extends Page implements HasTable
 
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedPuzzlePiece;
     protected string $view = 'filament.pages.module-manager';
-    protected static ?string $title = 'Connexion Module Manager';
+    protected static ?string $title = 'Module Manager';
 
     public array $modules = [];
 
@@ -39,6 +40,33 @@ class ModuleManager extends Page implements HasTable
         return false; 
     }
 
+    protected function getCoreVersion(): string
+    {
+        // 1️⃣ Try composer.json from your cloned repo
+        $path = base_path('modules/connexion/composer.json');
+        if (file_exists($path)) {
+            $composerData = json_decode(file_get_contents($path), true);
+            if (!empty($composerData['version'])) {
+                return $composerData['version'];
+            }
+        }
+
+        // 2️⃣ Try reading a VERSION file (optional if you maintain one)
+        $versionFile = base_path('modules/connexion/VERSION');
+        if (file_exists($versionFile)) {
+            return trim(file_get_contents($versionFile));
+        }
+
+        // 3️⃣ Try Git tag (best for repos)
+        $gitTag = @exec('cd ' . base_path('modules/connexion') . ' && git describe --tags --abbrev=0 2>/dev/null');
+        if (!empty($gitTag)) {
+            return $gitTag;
+        }
+
+        // 4️⃣ Default fallback
+        return 'dev-local';
+    }
+
     protected function loadModules(): void
     {
         $githubUser = 'light-worx';
@@ -46,12 +74,35 @@ class ModuleManager extends Page implements HasTable
 
         $available = collect();
 
+        /**
+         * 🧩 STEP 1: Add CORE module manually
+         */
+        $coreResponse = Http::get("https://api.github.com/repos/{$githubUser}/connexion/releases/latest");
+        $coreData = $coreResponse->successful() ? $coreResponse->json() : [];
+
+        // Add Core module first
+        $available->push([
+            'repo'               => 'connexion',
+            'slug'               => 'connexion',
+            'name'               => 'Core',
+            'version'            => $coreData['tag_name'] ?? 'unknown',
+            'description'        => $coreData['name'] ?? ($coreData['body'] ?? 'Connexion core application'),
+            'download_url'       => $coreData['zipball_url'] ?? null,
+            'installed_version'  => $this->getCoreVersion(),
+            'installed'          => true,
+            'enabled'            => true,
+            'status'             => 'installed',
+            'is_core'            => true,  // flag to identify core
+        ]);
+
+        /**
+         * 🧩 STEP 2: Fetch available remote modules
+         */
         foreach ($repos as $repo) {
             $response = Http::get("https://api.github.com/repos/{$githubUser}/{$repo}/releases/latest");
 
             if ($response->successful()) {
                 $data = $response->json();
-
                 $available->push([
                     'repo'         => $repo,
                     'slug'         => Str::slug($repo),
@@ -59,9 +110,9 @@ class ModuleManager extends Page implements HasTable
                     'version'      => $data['tag_name'] ?? 'unknown',
                     'description'  => $data['name'] ?? ($data['body'] ?? 'No description provided'),
                     'download_url' => $data['zipball_url'] ?? null,
+                    'is_core' => false,
                 ]);
             } else {
-                // Fallback if repo has no releases yet
                 $available->push([
                     'repo'         => $repo,
                     'slug'         => Str::slug($repo),
@@ -69,15 +120,17 @@ class ModuleManager extends Page implements HasTable
                     'version'      => 'unknown',
                     'description'  => 'No release found',
                     'download_url' => null,
+                    'is_core' => false,
                 ]);
             }
         }
 
-        // --- Get locally installed modules ---
+        /**
+         * 🧩 STEP 3: Get locally installed modules
+         */
         $installed = collect(Module::all())->map(function ($m) {
             $alias = $m->get('alias') ?? $m->getLowerName();
             $slug = Str::slug($alias);
-
             $path = $m->getPath() . '/module.json';
             $manifest = File::exists($path)
                 ? json_decode(File::get($path), true)
@@ -93,14 +146,16 @@ class ModuleManager extends Page implements HasTable
             ];
         })->keyBy('slug');
 
-        // --- Merge available and installed data ---
+        /**
+         * 🧩 STEP 4: Merge remote & local data
+         */
         $this->modules = $available->map(function ($remote) use ($installed) {
             $slug = $remote['slug'];
             $local = $installed[$slug] ?? null;
 
-            $remote['installed'] = $local !== null;
-            $remote['installed_version'] = $local['version'] ?? null;
-            $remote['enabled'] = $local['enabled'] ?? false;
+            $remote['installed'] = $remote['installed'] ?? ($local !== null);
+            $remote['installed_version'] = $remote['installed_version'] ?? ($local['version'] ?? null);
+            $remote['enabled'] = $remote['enabled'] ?? ($local['enabled'] ?? false);
             $remote['name'] = $local['name'] ?? $remote['name'];
             $remote['description'] = $local['description'] ?? $remote['description'];
 
@@ -113,7 +168,13 @@ class ModuleManager extends Page implements HasTable
             }
 
             return $remote;
-        })->values()->toArray();
+        })
+        ->sortBy(function ($module) {
+            // Ensure "Core" appears first
+            return $module['slug'] === 'connexion' ? 0 : 1;
+        })
+        ->values()
+        ->toArray();
     }
 
     public function table(Table $table): Table
@@ -128,19 +189,26 @@ class ModuleManager extends Page implements HasTable
                 
                 Tables\Columns\ToggleColumn::make('enabled')
                     ->label('Enabled')
-                    ->disabled(fn (array $record): bool => !$record['installed'])
+                    ->disabled(fn(array $record) => !$record['installed'] || $record['is_core'])
                     ->onColor('success')
                     ->offColor('gray')
-                    ->updateStateUsing(function (array $record, $state) {
-                        // Handle the toggle manually
+                    ->updateStateUsing(function(array $record, bool $state) {
+                        // Core module cannot be toggled via web
+                        if ($record['is_core']) {
+                            Notification::make()
+                                ->title('The Core module cannot be disabled')
+                                ->warning()
+                                ->send();
+                            return false;
+                        }
+
                         $this->toggleModule($record['slug'], $state);
                         $this->loadModules();
-                        
-                        // Reload the page to refresh navigation
+
+                        // Refresh navigation
                         $this->js('window.location.reload()');
-                        
-                        // Return false to prevent Filament from trying to save to a model
-                        return false;
+
+                        return false; // prevent Filament auto-save
                     }),
                 
                 Tables\Columns\TextColumn::make('status')
@@ -169,6 +237,23 @@ class ModuleManager extends Page implements HasTable
                     ->placeholder('N/A'),
             ])
             ->recordActions([
+                Action::make('update')
+                    ->label('Update')
+                    ->color('warning')
+                    ->action(function(array $record) {
+                        if ($record['is_core']) {
+                            // Dispatch queued job to safely update core
+                            UpdateCoreJob::dispatch();
+                            Notification::make()
+                                ->title('Core update queued')
+                                ->success()
+                                ->send();
+                        } else {
+                            $this->install($record['slug'], $record['download_url']);
+                        }
+                    })
+                    ->visible(fn(array $record) => $record['status'] === 'update'),
+
                 Action::make('install_module')
                     ->label('Install')
                     ->color('primary')

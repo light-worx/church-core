@@ -8,5 +8,6 @@ return new class extends SettingsMigration
     {
         $this->migrator->add('general.church_name', 'Connexion');
         $this->migrator->add('general.church_email', '');
+        $this->migrator->add('general.church_abbreviation', 'Cx');
     }
 };

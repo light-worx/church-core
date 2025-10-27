@@ -36,9 +36,7 @@ class AdminPanelProvider extends PanelProvider
             ])
             ->discoverResources(in: app_path('Filament/Resources'), for: 'App\Filament\Resources')
             ->discoverPages(in: app_path('Filament/Pages'), for: 'App\Filament\Pages')
-            ->pages([
-                Dashboard::class,
-            ])
+            ->pages([])
             ->discoverWidgets(in: app_path('Filament/Widgets'), for: 'App\Filament\Widgets')
             ->widgets([
                 AccountWidget::class,
@@ -60,7 +58,11 @@ class AdminPanelProvider extends PanelProvider
                 Action::make('module_manager')
                     ->label('Modules')
                     ->url('/admin/module-manager')
-                    ->icon('heroicon-o-puzzle-piece')
+                    ->icon('heroicon-o-puzzle-piece'),
+                Action::make('manage_settings')
+                    ->label('Settings')
+                    ->url('/admin/manage-settings')
+                    ->icon('heroicon-o-cog-6-tooth')
             ])
             ->authMiddleware([
                 Authenticate::class,

@@ -2,6 +2,8 @@
 
 namespace App\Providers;
 
+use App\Settings\GeneralSettings;
+use Illuminate\Support\Facades\Config;
 use Illuminate\Support\ServiceProvider;
 
 class AppServiceProvider extends ServiceProvider
@@ -19,6 +21,7 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
-        //
+        $settings=new GeneralSettings();
+        Config::set('app.name', $settings->church_abbreviation);
     }
 }
